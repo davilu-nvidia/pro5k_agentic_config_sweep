@@ -48,7 +48,7 @@ combination.
 - `SKILL.md` — canonical methodology (Chinese; byte-identical with the internal working copy). Drop into `.claude/skills/<name>/` together with a private `references/site.md` holding your host/paths/GPU_MEM/model inventory.
 - `scripts/runone.sh` — single-config executor (server lifecycle + concurrency ladder + verdicts)
 - `scripts/analyze.py` — QPS matching / PD-ratio enumeration
-- `PIPELINE.md` — optimization-path diagrams (mermaid)
+- `PIPELINE.md` / `PIPELINE.zh-CN.md` — the 6-step pipeline explained (English / Chinese)
 
 Numbers and machine specifics from the campaigns that produced this method have been
 removed; qualitative laws that transfer across models on PCIe-only hardware are kept.
