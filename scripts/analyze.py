@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """QPS matching: pick best P/D configs from results.tsv, enumerate PD ratios,
-report throughput per 1000 GPUs.
+report throughput per 1000 GPUs (千卡QPS).
 
 P unit QPS = InputTPS / ISL   (measured at its best SLA-passing operating point)
 D unit QPS = OutputTPS / OSL
-System QPS for xP:yD = min(x*qps_P, y*qps_D); per-1k-GPU QPS = 1000*QPS/(x*gpus_P+y*gpus_D)
+System QPS for xP:yD = min(x*qps_P, y*qps_D); 千卡QPS = 1000*QPS/(x*gpus_P+y*gpus_D)
 Steady-state approximation: KV-transfer overhead not included — validate the
 winner with a real PD-disaggregated Poisson run (see SKILL.md Phase V).
 
@@ -100,11 +100,11 @@ def main():
                         util=min(x * qp, y * qd) / max(x * qp, y * qd),
                     ))
     combos.sort(key=lambda c: c["kqps"], reverse=True)
-    print("\n== Top PD combos (per-1k-GPU QPS) ==")
+    print("\n== Top PD combos (千卡QPS) ==")
     for c in combos[:10]:
         print(f"  {c['x']}P:{c['y']}D  P={c['p']}  D={c['d']}  "
               f"gpus/group={c['gpus']}  sysQPS={c['qps']:.3f}  "
-              f"per-1k-GPU QPS={c['kqps']:.1f}  {c['bound']}-bound  match={c['util']:.0%}")
+              f"千卡QPS={c['kqps']:.1f}  {c['bound']}-bound  match={c['util']:.0%}")
 
 
 if __name__ == "__main__":

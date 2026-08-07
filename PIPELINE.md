@@ -1,4 +1,4 @@
-# Optimization pipeline diagram
+# pro5k-sgl-sweep 优化路径示意图
 
 给定任意 SLA + 负载 + 模型，skill 的完整寻优 pipeline（SKILL.md 是权威定义，本图为导览）：
 
@@ -7,7 +7,7 @@ flowchart TB
     A["输入: SLA (TTFT/TPOT) + ISL/OSL + 模型"] --> PLAN["§0.5 Sweep Plan<br/>环境快照/候选表/预算/决策点<br/>用户确认后开跑"]
     PLAN --> SEED["§3.5 种子推导 (零数值先验)<br/>显存可行域: 最小单元=ceil(W/60GB), KV余量≥30GB/卡<br/>P: 纯PP {浅,中,深} / 单卡模型走副本<br/>D: 最小可行单元, MoE→EP=TP+DPA对照, MTP从3/1/4"]
 
-    SEED --> SCREEN["初筛 (低保真: D用128/OSL)<br/>淘汰 吞吐/卡 < 冠军60%, 留 top-K"]
+    SEED --> SCREEN["初筛 (fake pure-D 短爬梯)<br/>淘汰 吞吐/卡 < 冠军60%, 留 top-K"]
 
     SCREEN --> CD["坐标下降 (LLM在环, 每点读 results.tsv)<br/>P: pp深度→chunk→并发<br/>D: mtp深度→dpa→ep→mem-fraction→并发"]
     CD --> CDRULE{"单维 ±1 档"}
@@ -42,8 +42,8 @@ flowchart LR
     subgraph P["P 单压 (天然高保真)"]
       P1["isl=ISL, osl=1 纯prefill<br/>+ --disable-radix-cache<br/>判 P50 TTFT, 计 Input TPS"]
     end
-    subgraph D["D 单压 (双保真)"]
-      D1["低保真 isl=128/OSL<br/>只做相对排序"] --> D2["高保真 fake pure-D<br/>--disaggregation-transfer-backend fake<br/>+ bootstrap_host=2.2.2.2<br/>零prefill, 每请求足额ISL KV<br/>判 mean TPOT, 计 Output TPS"]
+    subgraph D["D 单压 (一律高保真 fake pure-D)"]
+      D2["--disaggregation-transfer-backend fake<br/>+ bootstrap_host=2.2.2.2<br/>零prefill, 每请求足额 ISL KV<br/>初筛短爬梯 / 决赛完整爬梯<br/>判 mean TPOT, 计 Output TPS"]
     end
 ```
 

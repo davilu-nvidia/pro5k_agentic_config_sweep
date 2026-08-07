@@ -45,10 +45,10 @@ combination.
 
 ## Layout
 
-- `SKILL.md` — the skill entry point (drop into `.claude/skills/sglang-pd-sweep/`)
+- `SKILL.md` — canonical methodology (Chinese; byte-identical with the internal working copy). Drop into `.claude/skills/<name>/` together with a private `references/site.md` holding your host/paths/GPU_MEM/model inventory.
 - `scripts/runone.sh` — single-config executor (server lifecycle + concurrency ladder + verdicts)
 - `scripts/analyze.py` — QPS matching / PD-ratio enumeration
-- `references/methodology.md` — measurement design, fidelity trade-offs, search algorithm
+- `PIPELINE.md` — optimization-path diagrams (mermaid)
 
 Numbers and machine specifics from the campaigns that produced this method have been
 removed; qualitative laws that transfer across models on PCIe-only hardware are kept.
