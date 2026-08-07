@@ -1,31 +1,32 @@
-# pro5k-sgl-sweep 优化路径示意图
+# Optimization-path diagram
 
-给定任意 SLA + 负载 + 模型，skill 的完整寻优 pipeline（SKILL.md 是权威定义，本图为导览）：
+Given any SLA + workload + model, the skill's full search pipeline (SKILL.md is the
+authoritative definition; this is the guided tour):
 
 ```mermaid
 flowchart TB
-    A["输入: SLA (TTFT/TPOT) + ISL/OSL + 模型"] --> PLAN["§0.5 Sweep Plan<br/>环境快照/候选表/预算/决策点<br/>用户确认后开跑"]
-    PLAN --> SEED["§3.5 种子推导 (零数值先验)<br/>显存可行域: 最小单元=ceil(W/60GB), KV余量≥30GB/卡<br/>P: 纯PP {浅,中,深} / 单卡模型走副本<br/>D: 最小可行单元, MoE→EP=TP+DPA对照, MTP从3/1/4"]
+    A["Input: SLA (TTFT/TPOT) + ISL/OSL + model"] --> PLAN["§0.5 Sweep Plan<br/>env snapshot / candidate table / budget / decision points<br/>user confirms before execution"]
+    PLAN --> SEED["§3.5 Seed derivation (zero numeric priors)<br/>memory feasibility: min unit = ceil(W/(0.8×GPU_MEM)), KV headroom ≥30GB/GPU<br/>P: pure PP {shallow,mid,deep} / single-GPU models scale by replicas<br/>D: smallest feasible unit, MoE→EP=TP + DPA contrast, MTP from 3/1/4"]
 
-    SEED --> SCREEN["初筛 (fake pure-D 短爬梯)<br/>淘汰 吞吐/卡 < 冠军60%, 留 top-K"]
+    SEED --> SCREEN["Screening (fake pure-D, short ladders)<br/>drop per-GPU throughput < 60% of leader, keep top-K"]
 
-    SCREEN --> CD["坐标下降 (LLM在环, 每点读 results.tsv)<br/>P: pp深度→chunk→并发<br/>D: mtp深度→dpa→ep→mem-fraction→并发"]
-    CD --> CDRULE{"单维 ±1 档"}
-    CDRULE -->|"改进且PASS"| CD2["同方向继续"] --> CDRULE
-    CDRULE -->|"退步"| CD3["换下一维"] --> CDRULE
-    CDRULE -->|"全维度无改进"| LOCAL["单维局部最优"]
+    SCREEN --> CD["Coordinate descent (LLM in the loop, reads results.tsv per point)<br/>P: pp depth→chunk→concurrency<br/>D: mtp depth→dpa→ep→mem-fraction→concurrency"]
+    CD --> CDRULE{"±1 step on one dim"}
+    CDRULE -->|"improves & PASS"| CD2["keep direction"] --> CDRULE
+    CDRULE -->|"regresses"| CD3["next dimension"] --> CDRULE
+    CDRULE -->|"no improvement on any dim"| LOCAL["per-dimension local optimum"]
 
-    CD -.停止条件.-> STOPS["① SLA FAIL 即停爬<br/>② 吞吐平台期 (+<5%) 即停<br/>③ 边界扩展: 冠军在扫描边界→扩一档<br/>④ 连续改进但单步 <5% → 收敛"]
+    CD -.stop rules.-> STOPS["① stop ladder on SLA FAIL<br/>② stop on throughput plateau (+<5%)<br/>③ boundary extension: winner on scan edge → extend<br/>④ consecutive gains <5%/step → converged"]
 
-    LOCAL --> FINAL["决赛 (高保真)<br/>D 用官方 pure-D: fake KV后端+FAKE_BOOTSTRAP_HOST<br/>真实 ISL 上下文/足额 KV 分配<br/>临界点 (|指标-SLO|<5%) 3次取中位+邻档一起测"]
+    LOCAL --> FINAL["Finals (full ladders)<br/>D via official pure-D: fake KV backend + FAKE_BOOTSTRAP_HOST<br/>true-ISL context / fully-charged KV allocation<br/>marginal points (|metric-SLO|<5%): 3× median + adjacent rungs"]
 
-    FINAL --> G["G1-G4 全局性加固 (预算≈主搜索50%)<br/>G1 交互探针: 两维对角联动<br/>G2 未扫旋钮点名: 每个一枪, SRVFAIL也是信息<br/>G3 远点ε-探索: 不同形状族<br/>G4 细网格审计: 半步长+噪声runoff"]
-    G -->|"探针胜出 > 噪声(5%)"| CD
-    G -->|"全部不胜"| CERT["局部最优证书 (G加固版)"]
+    FINAL --> G["G1-G4 global hardening (budget ≈ 50% of main search)<br/>G1 interaction probes: two-dim diagonals<br/>G2 untouched-knob roll call: one shot each, SRVFAIL is information<br/>G3 far-point ε-exploration: different shape families<br/>G4 fine-grid audit: half steps + noise-aware runoff"]
+    G -->|"a probe wins > noise (5%)"| CD
+    G -->|"nothing wins"| CERT["local-optimality certificate (G-hardened)"]
 
-    CERT --> MATCH["QPS Matching<br/>qps_P=inpTPS/ISL, qps_D=outTPS/OSL<br/>枚举 xP:yD, 系统QPS=min(x·qps_P, y·qps_D)<br/>千卡QPS = 1000×QPS/总卡数"]
+    CERT --> MATCH["QPS matching<br/>qps_P=inpTPS/ISL, qps_D=outTPS/OSL<br/>enumerate xP:yD, system QPS=min(x·qps_P, y·qps_D)<br/>per-1k-GPU QPS = 1000×QPS/total GPUs"]
 
-    MATCH --> REPORT["报告 (白底HTML, 时间戳)<br/>三方案: 稳态最优/小组运维解/KV余量保守解<br/>置信度: 证书+G结果+roofline上界<br/>覆盖声明: 数据剪枝 vs 推断剪枝 vs 未扫维度"]
+    MATCH --> REPORT["Report (white-background HTML, timestamped)<br/>three options: steady-state / small-group ops pick / KV-margin conservative<br/>confidence: certificates + G outcomes + roofline bound<br/>coverage: data-backed vs inference-based pruning vs unswept dims"]
 
     style SEED fill:#ede9fe
     style CD fill:#dbeafe
@@ -35,16 +36,19 @@ flowchart TB
     style STOPS fill:#fee2e2
 ```
 
-## 测量方法速览
+## Measurement design at a glance
 
 ```mermaid
 flowchart LR
-    subgraph P["P 单压 (天然高保真)"]
-      P1["isl=ISL, osl=1 纯prefill<br/>+ --disable-radix-cache<br/>判 P50 TTFT, 计 Input TPS"]
+    subgraph P["P pressure (inherently high fidelity)"]
+      P1["isl=ISL, osl=1 pure prefill<br/>+ --disable-radix-cache<br/>judge P50 TTFT, count Input TPS"]
     end
-    subgraph D["D 单压 (一律高保真 fake pure-D)"]
-      D2["--disaggregation-transfer-backend fake<br/>+ bootstrap_host=2.2.2.2<br/>零prefill, 每请求足额 ISL KV<br/>初筛短爬梯 / 决赛完整爬梯<br/>判 mean TPOT, 计 Output TPS"]
+    subgraph D["D pressure (always high-fidelity fake pure-D)"]
+      D2["--disaggregation-transfer-backend fake<br/>+ bootstrap_host=2.2.2.2<br/>zero prefill, full-ISL KV per request<br/>short ladders for screening / full ladders for finals<br/>judge mean TPOT, count Output TPS"]
     end
 ```
 
-两轮实测验证：多卡切分 regime（大 MoE，PP/EP 形状族）与单卡副本 regime（小 MoE，TP1/PP1 形状族）均由同一套规则收敛到正确形状族；G 阶段曾抓到坐标下降遗漏的旋钮改进。
+Validated across two regimes: the multi-GPU split regime (large MoE, PP/EP shape
+family) and the single-GPU replica regime (small MoE, TP1/PP1 family) converge to the
+correct shape family under the same rules; the G stage has caught a real knob
+improvement that coordinate descent missed.
