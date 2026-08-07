@@ -45,7 +45,7 @@ combination.
 
 ## Layout
 
-- `SKILL.md` — canonical methodology (Chinese; byte-identical with the internal working copy). Drop into `.claude/skills/<name>/` together with a private `references/site.md` holding your host/paths/GPU_MEM/model inventory.
+- `SKILL.md` / `SKILL.zh-CN.md` — canonical methodology (English canonical / Chinese mirror) (byte-identical with the internal working copy). Drop into `.claude/skills/<name>/` together with a private `references/site.md` holding your host/paths/GPU_MEM/model inventory.
 - `scripts/runone.sh` — single-config executor (server lifecycle + concurrency ladder + verdicts)
 - `scripts/analyze.py` — QPS matching / PD-ratio enumeration
 - `PIPELINE.md` / `PIPELINE.zh-CN.md` — the 6-step pipeline explained (English / Chinese)
