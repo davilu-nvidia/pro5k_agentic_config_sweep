@@ -281,11 +281,23 @@ python3 analyze.py auto/results.tsv --isl ISL --osl OSL
   per-1k-GPU QPS = 1000 × QPS ÷ (x·gpus_P + y·gpus_D).
 - Output top-3 combos with the bottleneck side (P-bound / D-bound). This is a
   steady-state approximation; KV transfer is not included.
-- **The report must offer three options**: ① steady-state optimum; ② small-group
-  ops-friendly alternative (prefer it when within ~5%); ③ **KV-margin conservative
-  pick** — swap in the P operating point with TTFT headroom (real PD adds tens of ms
-  of KV-transfer residual to TTFT — measure it; borderline P configs will violate the
-  SLA in production).
+- **Deployability constraint**: a ratio is only as good as its tiling onto real
+  nodes. Prefer groups whose GPU count **equals or divides the node size** (e.g. 8) —
+  a node-exact group (like 5P:3D = 8 GPUs) is a self-contained PD box: KV transfer
+  stays intra-node, one router per node, homogeneous ops. Ratios that don't tile
+  (e.g. 13 GPUs/group) deploy as **homogeneous node pools** at fleet level (whole
+  nodes of P replicas : whole nodes of D replicas at the target ratio) — never split
+  a group across nodes.
+- **Replica-count caveat**: many single-GPU replicas per node multiply host-side
+  overhead (per-server tokenizer/scheduler processes, PCIe/memory-bandwidth sharing).
+  Pin each replica's CPUs to its GPU's NUMA node and give each its NUMA-local NIC.
+  Component numbers assume no cross-replica interference — **validate with an
+  all-replicas-loaded run before quoting production capacity** (expect a few % loss).
+- **The report must offer three options**: ① steady-state optimum; ② **node-aligned
+  ops pick** — the best ratio whose group tiles the node exactly (prefer it when
+  within ~5%); ③ **KV-margin conservative pick** — swap in the P operating point with
+  TTFT headroom (real PD adds tens of ms of KV-transfer residual to TTFT — measure
+  it; borderline P configs will violate the SLA in production).
 
 ### Phase V — (optional) real PD-disaggregation validation
 A single 8-GPU box can host e.g. 1P(4)+1D(4) to measure KV-transfer overhead:
