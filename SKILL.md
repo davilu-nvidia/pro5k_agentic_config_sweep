@@ -213,28 +213,28 @@ structure, MTP-head quality). For a new model, derive seeds from first principle
 
    *Model.* A prompt of ISL tokens chunked at size `chunk` yields M = ISL/chunk
    microbatches per request; at operating concurrency c, roughly N = c×M microbatches
-   are in flight. A pipeline of S stages processing N microbatches at per-stage time t
-   completes in (N + S − 1)·t against an ideal N·t, so pipeline efficiency is
-   N/(N+S−1) and the bubble share is (S−1)/(N+S−1). Independently, every chunk
+   are in flight. A pipeline of pp_size stages processing N microbatches at per-stage
+   time t completes in (N + pp_size − 1)·t against an ideal N·t, so pipeline
+   efficiency is N/(N+pp_size−1) and the bubble share is (pp_size−1)/(N+pp_size−1). Independently, every chunk
    boundary pays a fixed scheduling/launch overhead t_o (measured at ~10 ms/chunk on
    this class of machine), so total overhead grows linearly with M.
 
    *Trade-off.* Smaller chunks raise N and shrink the bubble share, but add t_o per
-   extra chunk; larger chunks do the reverse. Setting N ≈ 2S puts efficiency at
-   2S/(3S−1) ≈ 2/3 or better — the knee of the efficiency curve, beyond which each
-   further chunk buys <5% bubble reduction while paying full t_o. Solving
-   c×(ISL/chunk) = 2S for chunk gives the seed:
+   extra chunk; larger chunks do the reverse. Setting N ≈ 2·pp_size puts efficiency
+   at 2·pp_size/(3·pp_size−1) ≈ 2/3 or better — the knee of the efficiency curve,
+   beyond which each further chunk buys <5% bubble reduction while paying full t_o.
+   Solving c×(ISL/chunk) = 2·pp_size for chunk gives the seed:
 
-   **chunk_seed ≈ c_est × ISL / (2S)**
+   **chunk_seed ≈ c_est × ISL / (2 × pp_size)**
 
    where c_est is the expected operating concurrency of the P unit (low by nature,
    typically 1-3; use 2 when unknown — the subsequent hill-climb corrects mis-seeding
    at the cost of 1-2 probes).
 
-   *Limiting behaviors (sanity checks).* S=1 (no pipeline): the bubble term vanishes,
-   the formula degenerates to chunk ≈ c·ISL/2 — i.e. for a single-GPU prefill at c=1
+   *Limiting behaviors (sanity checks).* pp_size=1 (no pipeline): the bubble term
+   vanishes, the formula degenerates to chunk ≈ c·ISL/2 — i.e. for a single-GPU prefill at c=1
    the optimum tends toward "no chunking at all", which matches measurement (chunking
-   is pure overhead without a pipeline to fill or peers to interleave). Deep S with
+   is pure overhead without a pipeline to fill or peers to interleave). Deep pp_size with
    low c: the formula pushes chunks small, trading per-chunk overhead for pipeline
    fill — also as measured. Validated across both regimes on this hardware; the
    predicted seed landed on the measured sweet spot without extra climbing in the
