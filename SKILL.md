@@ -202,13 +202,41 @@ structure, MTP-head quality). For a new model, derive seeds from first principle
    shapes with <20 GB/GPU headroom will saturate in decode — prune outright.
 2. **P seeds**: pure PP first (platform law). PP depth candidates = the {shallow, mid,
    deep} feasible tiers (if the model fits one GPU, start at TP1/PP1 and scale P by
-   replicas instead of PP depth); chunk starting point from the pipeline-fill heuristic
-   **chunk ≈ c_est × ISL / (2S)** (S = PP depth, c_est = expected operating
-   concurrency, typically 1-3): the sweet spot sits where in-flight microbatches
-   c×(ISL/chunk) ≈ 2S — enough to amortize fill/drain bubbles, beyond which
-   per-chunk fixed overhead wins. Fits both measured regimes (deep-PP and
-   single-GPU, where it correctly pushes toward "no chunking"). Then hill-climb;
-   fall back to a mid value (~2048) if S and c_est are both unknown.
+   replicas instead of PP depth). Chunk starting point comes from the
+   **pipeline-fill heuristic**, derived as follows:
+
+   *Model.* A prompt of ISL tokens chunked at size `chunk` yields M = ISL/chunk
+   microbatches per request; at operating concurrency c, roughly N = c×M microbatches
+   are in flight. A pipeline of S stages processing N microbatches at per-stage time t
+   completes in (N + S − 1)·t against an ideal N·t, so pipeline efficiency is
+   N/(N+S−1) and the bubble share is (S−1)/(N+S−1). Independently, every chunk
+   boundary pays a fixed scheduling/launch overhead t_o (measured at ~10 ms/chunk on
+   this class of machine), so total overhead grows linearly with M.
+
+   *Trade-off.* Smaller chunks raise N and shrink the bubble share, but add t_o per
+   extra chunk; larger chunks do the reverse. Setting N ≈ 2S puts efficiency at
+   2S/(3S−1) ≈ 2/3 or better — the knee of the efficiency curve, beyond which each
+   further chunk buys <5% bubble reduction while paying full t_o. Solving
+   c×(ISL/chunk) = 2S for chunk gives the seed:
+
+   **chunk_seed ≈ c_est × ISL / (2S)**
+
+   where c_est is the expected operating concurrency of the P unit (low by nature,
+   typically 1-3; use 2 when unknown — the subsequent hill-climb corrects mis-seeding
+   at the cost of 1-2 probes).
+
+   *Limiting behaviors (sanity checks).* S=1 (no pipeline): the bubble term vanishes,
+   the formula degenerates to chunk ≈ c·ISL/2 — i.e. for a single-GPU prefill at c=1
+   the optimum tends toward "no chunking at all", which matches measurement (chunking
+   is pure overhead without a pipeline to fill or peers to interleave). Deep S with
+   low c: the formula pushes chunks small, trading per-chunk overhead for pipeline
+   fill — also as measured. Validated across both regimes on this hardware; the
+   predicted seed landed on the measured sweet spot without extra climbing in the
+   deep-PP case.
+
+   *Caveat.* The sweet spot drifts with the operating concurrency (the c in the
+   formula is the point's own c): a chunk climbed at c=2 is not optimal at c=3. This
+   is exactly why the G1 chunk×concurrency diagonal is mandatory for prefill.
 3. **D seeds**: unit size = smallest with "weights fit + KV headroom ≥30 GB/GPU"; MoE →
    EP=TP plus a DPA=2 contrast; dense → DPA is the only lever. MTP from 3/1/4 when the
    model ships a draft head, else off (NGRAM as fallback).
