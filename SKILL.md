@@ -213,6 +213,12 @@ G4 Fine-grid audit: half-step densification around the champion (e.g. conc ±8, 
              5% (noise scale), re-measure both once more before ranking.
 ```
 
+Scheduling note: G1 and G4 probes are defined relative to the finalized champion's
+coordinates — they MUST wait for descent to converge (probing a moving target wastes
+points; a champion shift invalidates them). G3 far points and champion-independent G2
+probes (new shape families, version/backend roll calls) may be folded into earlier
+batches to save wall-clock when the machine window is tight.
+
 Reports gain a **confidence section**: ① local-optimality certificates (interior /
 converged evidence per dimension); ② G1-G4 outcomes; ③ **roofline upper-bound
 comparison** — estimate utilization from the model's activated FLOPs vs hardware peak
