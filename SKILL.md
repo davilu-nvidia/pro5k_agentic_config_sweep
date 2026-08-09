@@ -125,7 +125,13 @@ single instance:
   concurrency ladder with two stop conditions: ① stop on FAIL (monotonicity
   assumption); ② **stop on throughput plateau** — TPOT still passing but outTPS gaining
   <5% means the instance is saturated and extra concurrency is pure queueing (a
-  saturated instance keeps "passing" TPOT while the queueing piles into TTFT). The
+  saturated instance keeps "passing" TPOT while the queueing piles into TTFT).
+  **Noise guard**: shapes with ragged throughput curves (sample scatter >5%) can show a
+  false dip that trips the plateau rule early — for top candidates, force-extend the
+  ladder one more rung during G4 before trusting the operating point. Also, an
+  SRVFAIL at server start is not proof a shape is infeasible: auto-derived
+  mem-fraction is too conservative for weight-heavy shapes — retry once with an
+  explicit `--mem-fraction-static` per the error message before closing the shape. The
   highest-throughput PASS rung is the config's "operating point" and feeds QPS matching
   directly.
 
@@ -246,7 +252,10 @@ tightening steps, by cost-effectiveness:
 
 ```
 G1 Interaction probes: 2-3 points around the champion where TWO dims move together
-             (diagonals single-dim climbing can't see), e.g. chunk↑×conc↑, MTP-depth×conc.
+             (diagonals single-dim climbing can't see). For prefill, chunk×concurrency
+             is MANDATORY — the chunk sweet spot drifts with the operating concurrency
+             (measured: optimum at c=2 and c=3 differ by a full chunk tier), so a
+             single-concurrency chunk climb reliably misses the higher-conc optimum.
              Any probe wins → restart descent from it.
 G2 Untouched-knob roll call: try one step of every §2 knob the champion never moved
              (MTP topk>1, attention backend, mem-fraction↑, A2A backend…). One shot
