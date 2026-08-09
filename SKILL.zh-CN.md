@@ -101,6 +101,47 @@ OOM——SRVFAIL 即边界）。
   说明实例已饱和、增量并发全变排队（饱和实例的 TPOT 依然"达标"，排队全部堆进 TTFT）。
   PASS 中吞吐最高的档就是该配置的"操作点"，直接进 QPS matching。
 
+
+### 可直接复制的命令（P 一档 / D 一档）
+
+**P 单压**——server（示例形状 TP1/PP2、chunk 2048）+ c=2 一档：
+
+```bash
+python3 -m sglang.launch_server \
+  --model-path $MODEL --tokenizer-path $MODEL $QUANT_ARGS \
+  --tp-size 1 --pp-size 2 --chunked-prefill-size 2048 \
+  --disable-radix-cache \
+  --trust-remote-code --context-length 16384 --host 127.0.0.1 --port 30000
+
+python3 -m sglang.bench_serving \
+  --backend sglang --host 127.0.0.1 --port 30000 --model $MODEL \
+  --dataset-name random --random-input-len 10000 --random-output-len 1 \
+  --random-range-ratio 1 --num-prompts 8 --max-concurrency 2 --request-rate inf
+# 用 "Median TTFT (ms)" 判 TTFT_SLO；用 "Input token throughput (tok/s)" 计吞吐
+```
+
+**D 单压（官方 pure-D）**——server（示例 TP1 + MTP 3/1/4 + mem 0.95）+ c=48 一档：
+
+```bash
+python3 -m sglang.launch_server \
+  --model-path $MODEL --tokenizer-path $MODEL $QUANT_ARGS \
+  --tp-size 1 --mem-fraction-static 0.95 \
+  --speculative-algorithm NEXTN --speculative-num-steps 3 \
+  --speculative-eagle-topk 1 --speculative-num-draft-tokens 4 \
+  --disaggregation-mode decode --disaggregation-transfer-backend fake \
+  --trust-remote-code --context-length 16384 --host 127.0.0.1 --port 30000
+
+python3 -m sglang.bench_serving \
+  --backend sglang --host 127.0.0.1 --port 30000 --model $MODEL \
+  --dataset-name random --random-input-len 10000 --random-output-len 700 \
+  --random-range-ratio 1 --num-prompts 96 --max-concurrency 48 --request-rate inf \
+  --extra-request-body '{"bootstrap_host":"2.2.2.2","bootstrap_room":0}'
+# 用 "Median ITL (ms)" 判 TPOT_SLO；用 "Output token throughput (tok/s)" 计吞吐；此模式 TTFT 无意义
+```
+
+换候选时只改并行/chunk/MTP 那几个 flag，其余保持不变。runone.sh 自动化的正是这套
+序列（杀干净-等显存-起服-爬梯-判定）。
+
 执行器 `scripts/runone.sh`（权威副本在 skill 里；开跑前按 site.md 写到
 `$WORK_DIR/runone.sh` 并 `chmod +x`；WORK_DIR / MODELS_DIR 从 site.md 导出）：
 

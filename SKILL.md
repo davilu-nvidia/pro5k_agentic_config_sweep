@@ -129,6 +129,47 @@ single instance:
   highest-throughput PASS rung is the config's "operating point" and feeds QPS matching
   directly.
 
+
+### Copy-paste commands (one P rung / one D rung)
+
+**P pressure** — server (example shape TP1/PP2, chunk 2048) + one rung at c=2:
+
+```bash
+python3 -m sglang.launch_server \
+  --model-path $MODEL --tokenizer-path $MODEL $QUANT_ARGS \
+  --tp-size 1 --pp-size 2 --chunked-prefill-size 2048 \
+  --disable-radix-cache \
+  --trust-remote-code --context-length 16384 --host 127.0.0.1 --port 30000
+
+python3 -m sglang.bench_serving \
+  --backend sglang --host 127.0.0.1 --port 30000 --model $MODEL \
+  --dataset-name random --random-input-len 10000 --random-output-len 1 \
+  --random-range-ratio 1 --num-prompts 8 --max-concurrency 2 --request-rate inf
+# judge "Median TTFT (ms)" vs TTFT_SLO; count "Input token throughput (tok/s)"
+```
+
+**D pressure (official pure-D)** — server (example TP1 + MTP 3/1/4 + mem 0.95) + one rung at c=48:
+
+```bash
+python3 -m sglang.launch_server \
+  --model-path $MODEL --tokenizer-path $MODEL $QUANT_ARGS \
+  --tp-size 1 --mem-fraction-static 0.95 \
+  --speculative-algorithm NEXTN --speculative-num-steps 3 \
+  --speculative-eagle-topk 1 --speculative-num-draft-tokens 4 \
+  --disaggregation-mode decode --disaggregation-transfer-backend fake \
+  --trust-remote-code --context-length 16384 --host 127.0.0.1 --port 30000
+
+python3 -m sglang.bench_serving \
+  --backend sglang --host 127.0.0.1 --port 30000 --model $MODEL \
+  --dataset-name random --random-input-len 10000 --random-output-len 700 \
+  --random-range-ratio 1 --num-prompts 96 --max-concurrency 48 --request-rate inf \
+  --extra-request-body '{"bootstrap_host":"2.2.2.2","bootstrap_room":0}'
+# judge "Median ITL (ms)" vs TPOT_SLO; count "Output token throughput (tok/s)"; TTFT is meaningless here
+```
+
+Swap the parallel/chunk/MTP flags per candidate; keep everything else fixed. runone.sh
+automates exactly this sequence (kill-drain-launch-ladder-verdict).
+
 Executor `scripts/runone.sh` (authoritative copy lives in the skill; before running,
 write it to `$WORK_DIR/runone.sh` per site.md and `chmod +x`; export WORK_DIR /
 MODELS_DIR from site.md):
