@@ -70,6 +70,12 @@ the plan — don't push through silently.
 - Decode-side radix cache (PD mode `--disaggregation-decode-enable-radix-cache`) is
   **incompatible with speculative decoding** — never combine it with MTP.
 - PP is incompatible with context parallelism / elastic EP.
+- CP (attention context parallelism, `attn_cp_size`; constraint tp % (dp × cp) == 0) is a
+  **workload-conditional dimension**: at moderate ISL (~10k) attention is a minor share of
+  prefill compute and CP buys little, and since CP excludes PP it competes with the
+  platform's best P family. Include TP×CP shapes as G2/G3 probes only when ISL ≥ ~32k.
+- SP (Megatron-style sequence parallelism) is not an independent knob in SGLang — it is
+  internal to the TP implementation; nothing to sweep.
 
 | Knob | flag | P | D |
 |---|---|---|---|
@@ -309,6 +315,13 @@ comparison** — estimate utilization from the model's activated FLOPs vs hardwa
 headroom; low utilization means the big wins live outside the flag space
 (kernels/versions). State honestly that global optimality is unprovable — report
 known-best + a list of where the remainder could hide.
+
+Roadmap note (v3, not yet implemented): fit a small calibrated performance model
+(roofline + pipeline-bubble term + measured per-chunk overhead + MTP acceptance) from
+one campaign's points, then answer *new SLAs* analytically with 2-3 spot-check
+measurements instead of a full sweep — one calibration, many SLA queries. First
+principles already pick the shape families; the model would extrapolate operating
+points; measurement would retain only threshold verification.
 
 ### Phase P — Prefill (judge TTFT_SLO, rank by Input TPS/GPU)
 1. Seeds from §3.5: pure PP first, {shallow, mid, deep} feasible depths; single-GPU

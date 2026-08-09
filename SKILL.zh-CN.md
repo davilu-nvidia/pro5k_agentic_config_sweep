@@ -56,6 +56,10 @@
 - Decode 侧 radix cache（PD 模式 `--disaggregation-decode-enable-radix-cache`）
   **与投机解码互斥**——开 MTP 就不要开它。
 - PP 与 context parallelism / elastic EP 互斥。
+- CP（注意力上下文并行，`attn_cp_size`；约束 tp % (dp × cp) == 0）是**负载条件维度**：
+  中等 ISL（~10k）下 attention 只占 prefill 计算的小头，CP 收益有限，且 CP 排斥 PP、
+  等于放弃本平台最优的 P 形状族。仅在 ISL ≥ ~32k 时把 TP×CP 形状纳入 G2/G3 探针。
+- SP（Megatron 式序列并行）在 SGLang 中不是独立旋钮——它内化于 TP 实现，无从扫描。
 
 | 旋钮 | flag | P | D |
 |---|---|---|---|
@@ -249,6 +253,11 @@ G4 细网格审计:  冠军邻域半步加密(如并发 ±8、chunk 中点), 确
 ③ **roofline 上界对比**——按模型 activated FLOPs 对硬件峰值估算 utilization
 （标明假设）。utilization 高 → 全局残余空间被数学压住；低 → 大头在 flag 空间之外
 （kernel/版本）。诚实声明全局最优不可证——报告已知最优 + 剩余空间可能藏身的清单。
+
+路线图（v3，尚未实现）：用一轮 campaign 的实测点标定一个小型性能模型
+（roofline + 流水线空泡项 + 实测每块开销 + MTP 接受率），此后**新 SLA 用解析求解 +
+2-3 个 spot check 验证**替代整轮 sweep——一次标定、多 SLA 复用。第一性原理已负责
+选形状族；模型负责外推操作点；实测只保留阈值验证。
 
 ### Phase P — Prefill（判 TTFT_SLO，按 Input TPS/卡 排名）
 1. 种子按 §3.5：纯 PP 优先、{浅,中,深} 可行深度；单卡模型从 TP1/PP1 起（副本扩展）。
