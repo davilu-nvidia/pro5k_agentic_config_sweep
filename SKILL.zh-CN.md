@@ -164,8 +164,11 @@ env: IMG MODEL WORK_DIR MODELS_DIR TTFT_SLO TPOT_SLO [PORT CTX_LEN QUANT_ARGS]
    **KV 余量 = GPU_MEM×卡数 − W** 决定 decode 并发上限；余量 <20GB/卡 的形状
    decode 必饱和，直接剪。
 2. **P 种子**：纯 PP 优先（平台定律）。PP 深度候选 = 可行的 {浅,中,深} 三档
-   （单卡放得下就从 TP1/PP1 起，靠副本而非 PP 深度扩展）；chunk 起点 ≈
-   SLO_ms × 预估单卡 prefill TPS / 1000 / PP深度，之后爬山。
+   （单卡放得下就从 TP1/PP1 起，靠副本而非 PP 深度扩展）；chunk 起点用流水线填充启发式
+   **chunk ≈ c_est × ISL / (2S)**（S = PP 深度，c_est = 预期操作点并发，通常 1-3）：
+   甜点位于在场微批数 c×(ISL/chunk) ≈ 2S 处——足以摊薄灌入/排空空泡，再多则每块
+   固定开销净亏。两种 regime（深流水与单卡，后者公式正确地趋向"不切"）实测均吻合。
+   之后爬山；S 与 c_est 都未知时退回中点 ~2048。
 3. **D 种子**：单元卡数取"权重装下 + KV 余量 ≥30GB/卡"的最小值；MoE → EP=TP 加
    DPA=2 对照；dense → DPA 是唯一杠杆。模型带草稿头就从 MTP 3/1/4 起，没有就 off
    （NGRAM 作替补）。

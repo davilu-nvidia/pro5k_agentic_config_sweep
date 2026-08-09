@@ -196,8 +196,13 @@ structure, MTP-head quality). For a new model, derive seeds from first principle
    shapes with <20 GB/GPU headroom will saturate in decode — prune outright.
 2. **P seeds**: pure PP first (platform law). PP depth candidates = the {shallow, mid,
    deep} feasible tiers (if the model fits one GPU, start at TP1/PP1 and scale P by
-   replicas instead of PP depth); chunk starting point ≈ SLO_ms × estimated per-GPU
-   prefill TPS / 1000 / PP-depth, then hill-climb.
+   replicas instead of PP depth); chunk starting point from the pipeline-fill heuristic
+   **chunk ≈ c_est × ISL / (2S)** (S = PP depth, c_est = expected operating
+   concurrency, typically 1-3): the sweet spot sits where in-flight microbatches
+   c×(ISL/chunk) ≈ 2S — enough to amortize fill/drain bubbles, beyond which
+   per-chunk fixed overhead wins. Fits both measured regimes (deep-PP and
+   single-GPU, where it correctly pushes toward "no chunking"). Then hill-climb;
+   fall back to a mid value (~2048) if S and c_est are both unknown.
 3. **D seeds**: unit size = smallest with "weights fit + KV headroom ≥30 GB/GPU"; MoE →
    EP=TP plus a DPA=2 contrast; dense → DPA is the only lever. MTP from 3/1/4 when the
    model ships a draft head, else off (NGRAM as fallback).
