@@ -70,7 +70,7 @@
 | TP / PP | `--tp-size N --pp-size M` | ✅ PP 是 prefill 主力 | PP 伤 TPOT，D 少用 |
 | chunk | `--chunked-prefill-size N` | ✅ 核心旋钮 | 无关 |
 | DPA | `--enable-dp-attention --dp-size N` | 长 ISL 下收益小 | ✅ decode 吞吐关键 |
-| EP | `--ep-size N` | prefill 通常无收益 | ✅ 摊薄 MoE 专家 |
+| EP | `--ep-size N` | prefill 无收益：EP 依附 TP（ep×moe_dp==tp），开 EP 必先交纯 PP 避开的 TP 税；且 EP 的收益（摊权重显存换 KV 余量、降每 token 权重读取）针对的都是 decode 的瓶颈，算力瓶颈的 prefill 用不上——实测 EP1 vs EP8 prefill 无差 | ✅ 摊薄 MoE 专家 |
 | MTP | `--speculative-algorithm NEXTN --speculative-num-steps a --speculative-eagle-topk b --speculative-num-draft-tokens c` | 无关 | ✅ 头号杠杆，深度有甜点 |
 | A2A | `--moe-a2a-backend flashinfer` | – | EP>1 时对比一次 |
 

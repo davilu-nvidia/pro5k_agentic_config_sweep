@@ -88,7 +88,7 @@ the plan — don't push through silently.
 | TP / PP | `--tp-size N --pp-size M` | ✅ PP is the prefill lever | PP hurts TPOT; rarely for D |
 | chunk | `--chunked-prefill-size N` | ✅ core knob | n/a |
 | DPA | `--enable-dp-attention --dp-size N` | little gain at long ISL | ✅ key decode-throughput lever |
-| EP | `--ep-size N` | usually no prefill gain | ✅ spreads MoE experts |
+| EP | `--ep-size N` | no prefill gain: EP requires TP>1 (ep×moe_dp==tp), i.e. paying the TP tax pure PP avoids; and EP's payoffs (weight-memory spreading for KV headroom, fewer per-token weight reads) address decode's bottlenecks, not compute-bound prefill — measured EP1 vs EP8 prefill identical | ✅ spreads MoE experts |
 | MTP | `--speculative-algorithm NEXTN --speculative-num-steps a --speculative-eagle-topk b --speculative-num-draft-tokens c` | n/a | ✅ top lever; depth has a sweet spot |
 | A2A | `--moe-a2a-backend flashinfer` | – | compare once when EP>1 |
 
