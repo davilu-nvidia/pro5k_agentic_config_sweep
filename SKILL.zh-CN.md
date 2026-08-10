@@ -377,6 +377,12 @@ python3 analyze.py auto/results.tsv --isl ISL --osl OSL
 3. **绝不干等**：轮询 `/health` 的同时 grep server 日志抓
    `Traceback|OOM|NCCL error`——命中立即判 SRVFAIL；任何等待超 1 分钟先查日志。
 4. PP 冷启动慢（35s+）；health 检查给足 600s。
+4b. **CUDA graph 覆盖核查**（decode 配置）：server UP 后 grep 日志中的捕获列表
+    （`Capture ... bs=[...]`）。捕获范围随剩余显存自适应——KV 越紧的形状捕获上限越低。
+    若某配置的操作点并发（按 DP rank 折算）达到或超过捕获上限，decode 会静默回退
+    eager，实测 TPOT 不再代表该配置的真实能力：要么加一枪 `--cuda-graph-max-bs`
+    的 G2 探针，要么在结果行注记。另：当前版本引擎自动禁用 prefill CUDA graph
+    （且与 DP attention 不兼容）——P 侧全程 eager，视为版本封闭维度。
 5. 日志/结果文件名带时间戳；输出行加 `[HH:MM:SS]` 前缀，防读旧数据。
 6. 开跑时 `docker pull $IMG` 并记录解析出的 digest；换镜像后先用已知配置 smoke
    一次，再信跨 campaign 对比。
