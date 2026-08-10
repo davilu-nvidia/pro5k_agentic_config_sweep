@@ -4,12 +4,12 @@ One picture, six steps. Details for each step follow below.
 
 ```mermaid
 flowchart LR
-    S1["1 · Derive<br/>starting configs<br/>from the model itself"] --> S2["2 · Screen<br/>quick test, keep<br/>the best few"]
-    S2 --> S3["3 · Climb<br/>improve one knob<br/>at a time"]
-    S3 --> S4["4 · Challenge<br/>attack the winner<br/>from four angles"]
+    S1["1 · Derive <br/>starting configs <br/>from the model itself"] --> S2["2 · Screen <br/>quick test, keep <br/>the best few"]
+    S2 --> S3["3 · Climb <br/>improve one knob <br/>at a time"]
+    S3 --> S4["4 · Challenge <br/>attack the winner <br/>from four angles"]
     S4 -- "found something better" --> S3
-    S4 -- "winner survives" --> S5["5 · Match<br/>pair P and D units<br/>into a ratio"]
-    S5 --> S6["6 · Report<br/>3 deployment options<br/>+ how sure we are"]
+    S4 -- "winner survives" --> S5["5 · Match <br/>pair P and D units <br/>into a ratio"]
+    S5 --> S6["6 · Report <br/>3 deployment options <br/>+ how sure we are"]
 
     style S1 fill:#ede9fe
     style S3 fill:#dbeafe
