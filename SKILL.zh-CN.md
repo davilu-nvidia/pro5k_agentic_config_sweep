@@ -59,6 +59,10 @@
 - CP（注意力上下文并行，`attn_cp_size`；约束 tp % (dp × cp) == 0）是**负载条件维度**：
   中等 ISL（~10k）下 attention 只占 prefill 计算的小头，CP 收益有限，且 CP 排斥 PP、
   等于放弃本平台最优的 P 形状族。仅在 ISL ≥ ~32k 时把 TP×CP 形状纳入 G2/G3 探针。
+  **混合线性注意力模型（如 GDN+GQA）进一步降级**：CP 的收益——分摊 O(L²) 的 softmax
+  attention——只作用于少数 GQA 层；线性注意力层为 O(L) 且其递归 state 沿序列存在
+  串行依赖（CP 退化为状态传递链），框架对混合栈的 CP 支持通常缺失。且此类模型每请求
+  state 为 O(1)，长上下文的显存压力论证同样不成立。
 - SP（Megatron 式序列并行）在 SGLang 中不是独立旋钮——它内化于 TP 实现，无从扫描。
 
 | 旋钮 | flag | P | D |

@@ -74,6 +74,12 @@ the plan — don't push through silently.
   **workload-conditional dimension**: at moderate ISL (~10k) attention is a minor share of
   prefill compute and CP buys little, and since CP excludes PP it competes with the
   platform's best P family. Include TP×CP shapes as G2/G3 probes only when ISL ≥ ~32k.
+  **Further demotion for hybrid linear-attention models** (e.g. GDN+GQA mixes): CP's
+  payoff — splitting O(L²) softmax attention — applies only to the minority GQA
+  layers; linear-attention layers are O(L) and their recurrent state imposes a
+  sequential dependency along the sequence (CP degenerates into a state-passing
+  chain), and framework support for CP over hybrid stacks is typically absent. Their
+  per-request state is also O(1), so the long-context memory motivation is weak too.
 - SP (Megatron-style sequence parallelism) is not an independent knob in SGLang — it is
   internal to the TP implementation; nothing to sweep.
 
