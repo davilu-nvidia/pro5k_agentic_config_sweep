@@ -15,7 +15,9 @@
 | `TPOT_SLO` | decode SLA，mean TPOT/ITL 上限 (ms) | 15 |
 | `ISL` / `OSL` | 输入/输出长度画像 | 10000 / 700 |
 | `MODEL` | 容器内模型路径 | 见 references/site.md |
-| `IMG` | SGLang 镜像；**默认拉 latest**，把解析出的 tag+digest 记入结果 | latest |
+| `IMG` | 服务镜像；**默认拉 latest**，把解析出的 tag+digest 记入结果 | latest |
+| `PREFIX_RATIO` | 负载声明的共享前缀比例（0 = 完全独立 prompt） | 0 |
+| `ENGINE` | 服务引擎（旋钮名与启动模板随引擎不同） | sglang |
 
 用户只给 SLA 时其余用默认并明确告知。执行通道（SSH/MCP 工具名）、宿主机与容器路径、
 容器命名、模型位置**一律见 `references/site.md`（私有文件，不随方法论公开）**。
@@ -70,7 +72,7 @@
 | TP / PP | `--tp-size N --pp-size M` | ✅ PP 是 prefill 主力 | PP 伤 TPOT，D 少用 |
 | chunk | `--chunked-prefill-size N` | ✅ 核心旋钮 | 无关 |
 | DPA | `--enable-dp-attention --dp-size N` | 长 ISL 下收益小 | ✅ decode 吞吐关键 |
-| EP | `--ep-size N` | prefill 无收益：EP 依附 TP（ep×moe_dp==tp），开 EP 必先交纯 PP 避开的 TP 税；且 EP 的收益（摊权重显存换 KV 余量、降每 token 权重读取）针对的都是 decode 的瓶颈，算力瓶颈的 prefill 用不上——实测 EP1 vs EP8 prefill 无差 | ✅ 摊薄 MoE 专家 |
+| EP | `--ep-size N` | **权重驻留 regime 下** prefill 无收益：EP 依附 TP（ep×moe_dp==tp），开 EP 必先交纯 PP 避开的 TP 税，且其收益针对 decode 瓶颈——实测 EP1 vs EP8 prefill 无差。**offload regime 下判定翻转**（§3.4-1）：EP 把每卡专家足迹除以 N、直接削减 H2D 流量 | ✅ 摊薄 MoE 专家 |
 | MTP | `--speculative-algorithm NEXTN --speculative-num-steps a --speculative-eagle-topk b --speculative-num-draft-tokens c` | 无关 | ✅ 头号杠杆，深度有甜点 |
 | A2A | `--moe-a2a-backend flashinfer` | – | EP>1 时对比一次 |
 
@@ -84,8 +86,11 @@ OOM——SRVFAIL 即边界）。
 
 用 `sglang.bench_serving --dataset-name random --random-range-ratio 1` 对单实例压测：
 
-- **P 单压**：`isl=ISL, osl=1`（纯 prefill）。必须 `--disable-radix-cache`
-  （等长 random prompt 并发会命中 prefix cache，产出假的超低 TTFT）。
+- **P 单压**：`isl=ISL, osl=1`（纯 prefill）。radix 处理跟随负载声明：
+  `PREFIX_RATIO=0` 时必须 `--disable-radix-cache`（等长 random prompt 并发会命中
+  prefix cache，产出假的超低 TTFT——那是测量伪影，不是负载）；`PREFIX_RATIO>0` 时
+  缓存命中**就是负载的一部分**：保持 radix 开启，用受控前缀数据集
+  （generated-shared-prefix，按声明比例配置分组）使实测命中率与声明值一致。
   指标：**P50 TTFT 判 SLA，Input TPS 计吞吐**。P 单压天然高保真（prefill 就是全部工作）。
 - **D 单压：一律用官方 pure-D fake KV 后端（完全高保真；0.5.15+ 已验证全链路）**：
   - D server 在正常 decode flags 之上加 `--disaggregation-mode decode
@@ -164,6 +169,30 @@ env: IMG MODEL WORK_DIR MODELS_DIR TTFT_SLO TPOT_SLO [PORT CTX_LEN QUANT_ARGS]
 它负责：容器生命周期、杀干净残留 sglang、等显存归零、起 server（fatal 日志秒失败）、
 逐档压测、PASS/FAIL 判定、追加 `auto/results.tsv`。tp/pp/dpa/ep/chunk/mtp 参数只是
 记录用标签——真正生效的是 `--` 后的 sglang flags，两边必须一致。
+
+## 3.4 Regime 扩展（触发时在种子推导前先套用）
+
+§3.5 的基础规则隐含四个假设：权重装得进显存、中等 ISL（~10k）、独立 prompt、SGLang。
+四种已知的 regime 变化会改写特定规则——推种子前逐项检查触发条件：
+
+1. **权重 offload regime**——触发：W > 0.8 × GPU_MEM × 单机卡数。
+   最小单元公式失效；选择变为 {切得更宽} vs {MoE 感知的 host offload}（routed expert
+   的 w13/w2 及 scale 卸载到 NUMA 本地 pinned host 内存、独立 H2D copy stream、
+   group/prefetch 调优）。**EP 对 prefill 的判定在此翻转**：权重驻留时 EP 对 prefill
+   无益（见 §2）；offload 下 EP-N 把每卡专家足迹除以 N、直接削减 H2D 流量——
+   DP×EP（如 TP1/DP8/EP8 + DeepEP 类 A2A）成为一等 P 形状族。坐标列表新增旋钮：
+   offload group/num/prefetch、copy stream 数量/优先级、按 PCIe root 交错的 GPU
+   顺序、NUMA 绑定。
+2. **长上下文 regime**——触发：ISL ≳ 32k 且为 softmax 族注意力（GQA/MLA）。
+   CP/PCP 重新成为 P 形状族，主要服务单请求 TTFT（吞吐通常仍属 DP/PP 族）；
+   §2 的混合线性注意力降级仅适用于 GDN 类结构。
+3. **前缀密集负载**——触发：PREFIX_RATIO > 0。测量协议按 §3（radix 开 + 受控前缀
+   数据集）；操作点从此依赖命中率，报告需连带声明。
+4. **引擎适配**——§2 旋钮表与 runone.sh 启动模板是 SGLang 专属。换引擎（如 vLLM）
+   需映射：tp/pp/dp/ep 尺寸；MoE 后端（`--moe-backend deep_gemm`）与 A2A
+   （`--all2all-backend deepep_v2`）；offload/环境旋钮为引擎特有（VLLM_* 变量）。
+   方法论本体（单压隔离、坐标下降、G1-G4、matching）与引擎无关，只需移植执行器的
+   启动模板与旋钮映射。
 
 ## 3.5 新模型种子推导（结论是 per-model 的；每次换模型重推）
 

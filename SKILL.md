@@ -18,7 +18,9 @@ find the SLA-compliant throughput-optimal Prefill config and Decode config, then
 | `TPOT_SLO` | decode SLA, mean TPOT/ITL ceiling (ms) | 15 |
 | `ISL` / `OSL` | input/output length profile | 10000 / 700 |
 | `MODEL` | model path inside the container | see references/site.md |
-| `IMG` | SGLang image; **pull latest by default** and record the resolved tag+digest in the results | latest |
+| `IMG` | serving image; **pull latest by default** and record the resolved tag+digest in the results | latest |
+| `PREFIX_RATIO` | declared shared-prefix ratio of the workload (0 = fully unique prompts) | 0 |
+| `ENGINE` | serving engine (knob names and launch template differ) | sglang |
 
 If the user only gives an SLA, use defaults and say so explicitly. The execution channel
 (SSH/MCP tool), host and container paths, container naming, and model locations are
@@ -88,7 +90,7 @@ the plan — don't push through silently.
 | TP / PP | `--tp-size N --pp-size M` | ✅ PP is the prefill lever | PP hurts TPOT; rarely for D |
 | chunk | `--chunked-prefill-size N` | ✅ core knob | n/a |
 | DPA | `--enable-dp-attention --dp-size N` | little gain at long ISL | ✅ key decode-throughput lever |
-| EP | `--ep-size N` | no prefill gain: EP requires TP>1 (ep×moe_dp==tp), i.e. paying the TP tax pure PP avoids; and EP's payoffs (weight-memory spreading for KV headroom, fewer per-token weight reads) address decode's bottlenecks, not compute-bound prefill — measured EP1 vs EP8 prefill identical | ✅ spreads MoE experts |
+| EP | `--ep-size N` | no prefill gain **in the fits-in-memory regime**: EP requires TP>1 (ep×moe_dp==tp), i.e. paying the TP tax pure PP avoids, and its payoffs address decode bottlenecks — measured EP1 vs EP8 prefill identical. **Sign flips under weight offload** (§3.4-1): EP divides per-GPU expert footprint and cuts H2D traffic | ✅ spreads MoE experts |
 | MTP | `--speculative-algorithm NEXTN --speculative-num-steps a --speculative-eagle-topk b --speculative-num-draft-tokens c` | n/a | ✅ top lever; depth has a sweet spot |
 | A2A | `--moe-a2a-backend flashinfer` | – | compare once when EP>1 |
 
@@ -104,9 +106,13 @@ high OOMs during load — SRVFAIL marks the boundary).
 Use `sglang.bench_serving --dataset-name random --random-range-ratio 1` against a
 single instance:
 
-- **P pressure**: `isl=ISL, osl=1` (pure prefill). Always `--disable-radix-cache`
-  (concurrent equal-length random prompts hit the prefix cache and produce fantasy-low
-  TTFT). Metrics: **P50 TTFT judges the SLA, Input TPS counts throughput**.
+- **P pressure**: `isl=ISL, osl=1` (pure prefill). Radix handling follows the declared
+  workload: with `PREFIX_RATIO=0`, always `--disable-radix-cache` (concurrent
+  equal-length random prompts otherwise hit the prefix cache and produce fantasy-low
+  TTFT — an artifact, not the workload). With `PREFIX_RATIO>0`, cache hits ARE part of
+  the workload: keep radix on and use a prefix-controlled dataset
+  (generated-shared-prefix with group sizing matched to the declared ratio) so the
+  measured hit rate equals the declared one. Metrics: **P50 TTFT judges the SLA, Input TPS counts throughput**.
   P pressure is inherently high fidelity (prefill is the entire workload).
 - **D pressure: exclusively the official pure-D fake-KV path (fully high fidelity;
   verified end-to-end on 0.5.15+)**:
@@ -202,6 +208,36 @@ drain, server start (fatal-log fast-fail), per-rung benchmarking, PASS/FAIL verd
 appending `auto/results.tsv`. The tp/pp/dpa/ep/chunk/mtp arguments are record-keeping
 labels only — what actually takes effect are the sglang flags after `--`; keep them
 consistent.
+
+## 3.4 Regime extensions (apply before seed derivation when triggered)
+
+The base rules in §3.5 assume: weights fit in GPU memory, moderate ISL (~10k), unique
+prompts, SGLang. Four documented regime shifts change specific rules — check each
+trigger before deriving seeds:
+
+1. **Weight-offload regime** — trigger: W > 0.8 × GPU_MEM × (GPUs per node).
+   The min-unit formula no longer applies; the choice becomes {split wider} vs
+   {MoE-aware host offload} (offload routed-expert w13/w2 + scales to pinned
+   NUMA-local host memory, dedicated H2D copy streams, group/prefetch tuning).
+   **EP's prefill verdict flips sign here**: with weights resident, EP buys prefill
+   nothing (see §2); under offload, EP-N divides each GPU's expert footprint by N and
+   directly cuts H2D traffic — DP×EP (e.g. TP1/DP8/EP8 with DeepEP-class A2A) becomes
+   a first-class P family. New knobs enter the coordinate list: offload group/num/
+   prefetch sizes, copy-stream count/priority, PCIe-interleaved GPU order, NUMA
+   binding.
+2. **Long-context regime** — trigger: ISL ≳ 32k AND softmax-family attention
+   (GQA/MLA). CP/PCP re-enters as a P family, primarily for single-request TTFT
+   (throughput usually still favors DP/PP families); the hybrid linear-attention
+   demotion in §2 applies only to GDN-style stacks.
+3. **Prefix-heavy workloads** — trigger: PREFIX_RATIO > 0. Measurement protocol per
+   §3 (radix on, controlled prefix dataset); note the operating point now depends on
+   the hit rate, so report it alongside.
+4. **Engine adapter** — the §2 knob table and runone.sh launch template are
+   SGLang-specific. For another engine (e.g. vLLM), map: tp/pp/dp/ep sizes; MoE
+   backend (`--moe-backend deep_gemm`) and A2A (`--all2all-backend deepep_v2`);
+   offload/env knobs are engine-specific (VLLM_* variables). The methodology
+   (pressure isolation, coordinate descent, G1-G4, matching) is engine-independent;
+   only the executor's launch template and flag map need porting.
 
 ## 3.5 Seed derivation for a new model (conclusions are per-model; re-derive every time)
 
