@@ -470,15 +470,19 @@ A single 8-GPU box can host e.g. 1P(4)+1D(4) to measure KV-transfer overhead:
    `Traceback|OOM|NCCL error` — judge SRVFAIL immediately on a hit; investigate any
    wait > 1 minute.
 4. PP cold start is slow (35 s+); give health checks up to 600 s.
-4b. **CUDA-graph coverage check** (decode configs): after the server is UP, grep the
-    log for the graph capture list (`Capture ... bs=[...]`). The captured range is
-    memory-adaptive — KV-tight shapes capture less. If a config's operating
-    concurrency (per DP rank) sits at or beyond the capture ceiling, decode silently
-    falls back to eager and the measured TPOT is not the config's true capability:
-    either raise `--cuda-graph-max-bs` (one G2 probe) or annotate the row. Note:
-    prefill CUDA graph is auto-disabled by the engine on current versions (and is
-    incompatible with DP attention) — the prefill side runs eager; treat as a
-    version-closed dimension.
+4b. **CUDA-graph coverage is a hard requirement for decode measurements.** A rung
+    executed under eager fallback is INVALID, not merely annotated. Enforcement is
+    two-fold (both automated in runone.sh): ① the executor pins
+    `--cuda-graph-max-bs = ladder-top / dp_rank_count` on every D config unless the
+    caller set it explicitly; ② after UP it greps the capture list
+    (`Capture ... bs=[...]`) and logs the ceiling vs the required per-rank batch —
+    a WARNING there means the affected rungs must be re-run (raise max-bs, or trade
+    mem-fraction for capture memory). If capture cannot reach the ladder top even
+    after the trade-off, the shape's valid concurrency ends at the ceiling — record
+    that as the boundary. Engine-adapter note: on vLLM never pass `--enforce-eager`,
+    and size the compilation-config capture list to cover the operating point.
+    Prefill CUDA graph is auto-disabled by current engine versions (incompatible
+    with DP attention) — prefill runs eager; version-closed dimension.
 5. Timestamp every log/result filename; prefix output lines with `[HH:MM:SS]` to avoid
    reading stale data.
 6. `docker pull $IMG` at start and record the resolved digest; after any image change,
